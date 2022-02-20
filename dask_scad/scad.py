@@ -146,14 +146,14 @@ def _construct(
     memory[key] = MemoryElement(key)
 
     def get_compute(k):
-        if k in compute:
-            return compute[k]
-        _construct(k, dsk, dependencies, dependents, compute, memory)
+        if k not in compute:
+            _construct(k, dsk, dependencies, dependents, compute, memory)
+        return compute[k]
 
     def get_memory(k):
-        if k in memory:
-            return memory[k]
-        _construct(k, dsk, dependencies, dependents, compute, memory)
+        if k not in memory:
+            _construct(k, dsk, dependencies, dependents, compute, memory)
+        return memory[k]
 
     # compute adjacent nodes
     pars = [get_compute(k) for k in dependencies[key]]
@@ -214,7 +214,7 @@ def process(
     waiting_data = {k: v.copy() for k, v in dependents.items() if v}
 
     # prune unnecessary cache values
-    for a in cache:
+    for a in list(cache):
         if a not in waiting_data:
             del cache[a]
 
