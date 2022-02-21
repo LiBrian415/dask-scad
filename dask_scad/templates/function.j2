@@ -1,0 +1,63 @@
+#@ type: compute
+{%- if parents %}
+#@ parents:
+{%- for p in parents %}
+#@    - {{p.get_id()}}
+{%- endfor %}
+{%- endif %}
+{%- if dependents %}
+#@ dependents:
+{%- for d in dependents %}
+#@    - {{d.get_id()}}
+{%- endfor %}
+{%- endif %}
+{%- if corunning %}
+#@ corunning:
+{%- for c in corunning %}
+#@    {{c.get_id()}}:
+#@        trans: {{c.get_id()}}
+#@        type: rdma
+{%- endfor %}
+{%- endif %}
+
+import cloudpickle
+
+from dask.core import _execute_task
+
+
+def main(params, action):
+    key = {{ '\'' + key + '\''}}
+    output = {{ '\'' + output + '\''}}
+    # ?: Do we need to serialize and deserialize the tasks?
+    computation = {{ computation }}
+
+    try:
+        # Input Processing
+        cache = dict()
+        for _, v in params:
+            if v['error']:
+                raise
+            (k, t, a, s) = v['mem']
+
+            trans = action.get_transport(t, 'rdma')
+            trans.reg(s)
+            trans.read(s, a, 0)
+            cache[k] = cloudpickle.loads(trans.buf[:s])
+
+        # Execute Task
+        df = _execute_task(computation, cache)
+
+        # Output Processing
+        serialized = cloudpickle.dumps(df)
+        address = 0
+        size = len(serialized)
+
+        trans = action.get_transport(output, 'rdma')
+        trans.reg(size)
+        trans.buf[:] = serialized
+        trans.write(size, address, 0)
+
+        return {'mem' : (key, output, address, size), 'error' : False}
+    except Exception:
+        return {'error' : True}
+
