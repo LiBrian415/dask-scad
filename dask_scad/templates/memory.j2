@@ -1,0 +1,11 @@
+type: memory
+corunning:
+{%- for co in corunning %}
+    - {{co.get_id()}}
+{%- endfor %}
+{%- if limits %}
+limits:
+{%- for k, v in limits.items() %}
+    {{k}} : {{v}}
+{%- endfor %}
+{%- endif %}
