@@ -3,9 +3,13 @@ SCAD shared-memory scheduler
 
 See local.py and multithreading.py from dask
 """
+import os.path
+
 from dask.core import flatten, get_dependencies, has_tasks, reverse_dict
 from dask.optimization import cull, fuse
 from dask.utils import ensure_dict
+
+from jinja2 import Environment, FileSystemLoader
 
 
 def get(
@@ -45,29 +49,31 @@ def get(
     keys = set(keys_flat)
 
     compute, memory = process(dsk3, keys, cache)
+    generate(compute + memory)
 
 
 class Element:
     """
     Holds generic information relating to any Scad element
 
-    key: str
+    name: str
+        name of the element
+    key: hashable
         key that this element is associated with
     corunning: list[Element]
         list of corunning elements
     """
     def __init__(
         self,
+        name,
         key,
         **kwargs
     ):
+        self.name = name
         self.key = key
         self.corunning = []
 
     def get_id(self):
-        pass
-
-    def generate(self, dst):
         pass
 
 
@@ -75,65 +81,71 @@ class ComputeElement(Element):
     """
     Holds information relating to an individual Scad compute element
 
-    key: str
+    name: str
+        'func_' + name
+    key: hashable
         name of key associated with the computation
-    corunning: list[Element]
-        list of corunning elements
-    parents: list[Element]
+        (None used to identify output node)
+    corunning: list[MemoryElement]
+        list of corunning elements (MemoryElements that it accesses)
+    parents: list[ComputeElement]
         list of parent elements
-    dependents: list[Element]
+    dependents: list[ComputeElement]
         list of dependent elements
     computation: computation
         dask computation
+    output: MemoryElement
+        memory element used to store output of task
     """
     def __init__(
         self,
+        name,
         key,
-        task,
+        computation,
+        output=None,
         **kwargs
     ):
-        super().__init__(key, **kwargs)
-        self.task = task
+        super().__init__(name, key, **kwargs)
+        self.computation = computation
+        self.output = output
         self.parents = []
         self.dependents = []
 
     def get_id(self):
-        pass
-
-    def generate(self, dst):
-        pass
+        return 'func_' + self.name
 
 
 class MemoryElement(Element):
     """
     Holds information relating to an individual Scad memory element
 
-    key: str
+    name: str
+        'mem_' + name
+    key: hashable
         name of key associated with the computation that outputs this element
-    corunning: list[Element]
-        list of corunning elements
+    corunning: list[ComputeElement]
+        list of corunning elements (ComputeElements that read/write to it)
     limits: dict
         dictionary of limits
     """
     def __init__(
         self,
+        name,
         key,
         limits=None,
         **kwargs
     ):
-        super().__init__(key, **kwargs)
-        self.limits = dict() if limits is None else limits
+        super().__init__(name, key, **kwargs)
+        self.limits = {'mem': '512 MB'} if limits is None else limits
 
     def get_id(self):
-        pass
-
-    def generate(self, dst):
-        pass
+        return 'mem_' + self.name
 
 
 def _construct(
     key,
     dsk,
+    name,
     dependencies,
     dependents,
     compute,
@@ -142,17 +154,20 @@ def _construct(
     if key in compute or key in memory:
         return
 
-    compute[key] = ComputeElement(key, dsk[key])
-    memory[key] = MemoryElement(key)
+    computation = dsk[key]
+    # Give data_keys the identity function
+    if not has_tasks(dsk, computation):
+        computation = (lambda x: x, computation)
+
+    memory[key] = MemoryElement(name[key], key)
+    compute[key] = ComputeElement(name[key], key, computation, memory[key])
 
     def get_compute(k):
-        if k not in compute:
-            _construct(k, dsk, dependencies, dependents, compute, memory)
+        _construct(k, dsk, name, dependencies, dependents, compute, memory)
         return compute[k]
 
     def get_memory(k):
-        if k not in memory:
-            _construct(k, dsk, dependencies, dependents, compute, memory)
+        _construct(k, dsk, name, dependencies, dependents, compute, memory)
         return memory[k]
 
     # compute adjacent nodes
@@ -205,6 +220,7 @@ def process(
             data_keys.add(k)
 
     # create task graph with cache included
+    # this also replaces values we already have in the dsk with the cached values
     dsk2 = dsk.copy()
     dsk2.update(cache)
 
@@ -218,13 +234,65 @@ def process(
         if a not in waiting_data:
             del cache[a]
 
-    # TODO: Add output task here
-
     compute = {}
     memory = {}
+    name = {}
+    for idx, key in enumerate(dsk2.keys()):
+        name[key] = str(idx)
 
     # construct Scad elements
     for a in dsk2:
-        _construct(a, dsk2, dependencies, dependents, compute, memory)
+        _construct(a, dsk2, name, dependencies, dependents, compute, memory)
 
-    return compute.values(), memory.values()
+    # construct output element
+    output = ComputeElement(len(name), None, None)
+    output.parents = [compute[k] for k in keys]
+    output.corunning = [memory[k] for k in keys]
+
+    return (list(compute.values()) + [output]), list(memory.values())
+
+
+def generate(elements):
+    def generate_comp(el):
+        if el.key is None:
+            template = get_template('output.j2')
+            print(template.render(
+                parents=el.parents,
+                corunning=el.corunning
+            ))
+        else:
+            template = get_template('function.j2')
+            print(template.render(
+                key=el.key,
+                name=el.name,
+                computation=el.computation,
+                parents=el.parents,
+                dependents=el.dependents,
+                corunning=el.corunning,
+                output=el.output.get_id() if el.output is not None else None
+            ))
+
+    def generate_mem(el):
+        template = get_template('memory.j2')
+        print(template.render(corunning=el.corunning, limits=el.limits))
+
+    for e in elements:
+        if isinstance(e, ComputeElement):
+            generate_comp(e)
+        elif isinstance(e, MemoryElement):
+            generate_mem(e)
+
+
+# Jinja2 stuff
+TEMPLATE_PATHS = [os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")]
+
+
+def get_environment():
+    loader = FileSystemLoader(TEMPLATE_PATHS)
+    environment = Environment(loader=loader)
+    return environment
+
+
+def get_template(name):
+    return get_environment().get_template(name)
+
