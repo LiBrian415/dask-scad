@@ -1,0 +1,19 @@
+import cloudpickle
+import json
+import sys
+
+from dask.core import _execute_task
+
+
+def main(params):
+    computation = {{ computation }}
+    cache = params
+
+    # Execute Task
+    res = _execute_task(cloudpickle.loads(computation), cache)
+
+    print(json.dumps({'res' : res, 'error' : False}))
+
+if __name__ == '__main__':
+    params = sys.argv[1]
+    main(json.loads(params))
