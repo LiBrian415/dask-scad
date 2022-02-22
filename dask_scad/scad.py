@@ -3,11 +3,13 @@ SCAD shared-memory scheduler
 
 See local.py and multithreading.py from dask
 """
+import base64
 import cloudpickle
 import os.path
 
 from dask import config
 from dask.core import flatten, get_dependencies, has_tasks, reverse_dict
+from dask.local import nested_get
 from dask.optimization import cull, fuse
 from dask.utils import ensure_dict
 
@@ -46,6 +48,10 @@ def get(
         If true [default], `fuse` is applied to the graph before computation
     scad_output : dict
         A dictionary specifying storage for output
+        {
+            'type': lfs | ,
+            'meta': dict() [type specific metadata]
+        }
     """
 
     scad_output = scad_output or config.get('scad_output')
@@ -79,7 +85,11 @@ def get(
     # Note: use os.mkdir() for local testing
     # use temp directory to handle cleanup
     with TemporaryDirectory() as td:
-        generate(list(compute.values()) + [output] + list(memory.values()), 'actions')
+        generate(list(compute.values()) + [output] + list(memory.values()), td)
+        result_meta = dict() #TODO: replace with Scad program execution
+
+    results = load(result_meta, scad_output)
+    return nested_get(keys, results)
 
 
 class Element:
@@ -329,6 +339,22 @@ def generate(elements, dir):
         if generated is not None:
             with open(os.path.join(dir, e.get_fname()), 'w') as f:
                 f.write(generated)
+
+
+def load(meta, scad_output):
+    def read_lfs(output, cache):
+        for k, v in output.items():
+            with open(v, 'rb') as f:
+                val = cloudpickle.loads(f.read())
+            cache[k] = val
+
+    output = cloudpickle.loads(base64.b64decode(meta['output']))
+    cache = dict()
+
+    if scad_output['type'] == 'lfs':
+        read_lfs(output, cache)
+    else:
+        raise
 
 
 # Jinja2 stuff
