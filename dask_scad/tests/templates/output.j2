@@ -1,0 +1,38 @@
+import cloudpickle
+import json
+import sys
+import tempfile
+import base64
+
+from dask.core import _execute_task
+
+
+def main(params):
+    scad_output = {{ output }}
+    cache = params
+
+    try:
+        output = dict()
+        for k, v in cache.items():
+            serialized = cloudpickle.dumps(v)
+            loc = store(serialized, scad_output)
+            output[k] = loc
+
+        print(json.dumps({'output': base64.b64encode(cloudpickle.dumps(output)).decode('ascii'), 'error': False}))
+    except:
+        print(json.dumps({'error': True}))
+
+def store(data, output):
+    if output['type'] == 'lfs':
+        dir = output['meta']['dir']
+        tf = tempfile.NamedTemporaryFile(dir=dir, delete=False)
+        with open(tf.name, 'wb') as f:
+            f.write(data)
+        return tf.name
+    else:
+        raise
+
+
+if __name__ == '__main__':
+    params = sys.argv[1]
+    main(cloudpickle.loads(base64.b64decode(params)))
