@@ -20,7 +20,7 @@ from tempfile import TemporaryDirectory
 
 def get(
     dsk,
-    keys,
+    result,
     cache=None,
     optimize_graph=True,
     scad_output=None,
@@ -40,7 +40,7 @@ def get(
 
     dsk : dict
         A dask dictionary specifying a workflow
-    keys: object or list
+    result: object or list
         Keys corresponding to desired data
     cache : dict-like, optional
         Temporary storage of results
@@ -58,17 +58,17 @@ def get(
 
     # Optimize Dask
     dsk = ensure_dict(dsk)
-    dsk2, dependencies = cull(dsk, keys)
+    dsk2, dependencies = cull(dsk, result)
     if optimize_graph:
-        dsk3, dependencies = fuse(dsk2, keys, dependencies)
+        dsk3, dependencies = fuse(dsk2, result, dependencies)
     else:
         dsk3 = dsk2
 
     # flattened set of unique keys
-    if isinstance(keys, list):
-        keys_flat = set(flatten(keys))
+    if isinstance(result, list):
+        keys_flat = set(flatten(result))
     else:
-        keys_flat = {keys}
+        keys_flat = {result}
     keys = set(keys_flat)
 
     compute, memory = process(dsk3, cache)
@@ -88,8 +88,8 @@ def get(
         generate(list(compute.values()) + [output] + list(memory.values()), td)
         result_meta = dict() #TODO: replace with Scad program execution
 
-    results = load(result_meta, scad_output)
-    return nested_get(keys, results)
+    cache = load(result_meta, scad_output)
+    return nested_get(result, cache)
 
 
 class Element:
