@@ -3,13 +3,17 @@ SCAD shared-memory scheduler
 
 See local.py and multithreading.py from dask
 """
+import cloudpickle
 import os.path
 
+from dask import config
 from dask.core import flatten, get_dependencies, has_tasks, reverse_dict
 from dask.optimization import cull, fuse
 from dask.utils import ensure_dict
 
 from jinja2 import Environment, FileSystemLoader
+
+from tempfile import TemporaryDirectory
 
 
 def get(
@@ -17,9 +21,18 @@ def get(
     keys,
     cache=None,
     optimize_graph=True,
+    scad_output=None,
     **kwargs
 ):
     """
+    How to use:
+    get(dsk, key(s), scad_output={...})
+
+    compute(scad_output={...})
+
+    with dask.config.set(scad_output={...})
+        ...
+
     Parameters
     ----------
 
@@ -31,7 +44,11 @@ def get(
         Temporary storage of results
     optimize_graph: bool
         If true [default], `fuse` is applied to the graph before computation
+    scad_output : dict
+        A dictionary specifying storage for output
     """
+
+    scad_output = scad_output or config.get('scad_output')
 
     # Optimize Dask
     dsk = ensure_dict(dsk)
@@ -48,31 +65,24 @@ def get(
         keys_flat = {keys}
     keys = set(keys_flat)
 
-    compute, memory = process(dsk3, keys, cache)
-    generate(compute + memory)
+    compute, memory = process(dsk3, cache)
+
+    # construct output element
+    output = OutputElement(scad_output)
+    output.parents = [compute[k] for k in keys]
+    output.corunning = [memory[k] for k in keys]
+    for p in output.parents:
+        p.dependents.append(output)
+    for c in output.corunning:
+        c.corunning.append(output)
+
+    # Note: use os.mkdir() for local testing
+    # use temp directory to handle cleanup
+    with TemporaryDirectory() as td:
+        generate(list(compute.values()) + [output] + list(memory.values()), 'actions')
 
 
 class Element:
-    """
-    Holds generic information relating to any Scad element
-
-    name: str
-        name of the element
-    key: hashable
-        key that this element is associated with
-    corunning: list[Element]
-        list of corunning elements
-    """
-    def __init__(
-        self,
-        name,
-        key,
-        **kwargs
-    ):
-        self.name = name
-        self.key = key
-        self.corunning = []
-
     def get_id(self):
         pass
 
@@ -87,10 +97,10 @@ class ComputeElement(Element):
         name of key associated with the computation
         (None used to identify output node)
     corunning: list[MemoryElement]
-        list of corunning elements (MemoryElements that it accesses)
+        list of corunning elements
     parents: list[ComputeElement]
         list of parent elements
-    dependents: list[ComputeElement]
+    dependents: list[ComputeElement/OutputElement]
         list of dependent elements
     computation: computation
         dask computation
@@ -105,14 +115,47 @@ class ComputeElement(Element):
         output=None,
         **kwargs
     ):
-        super().__init__(name, key, **kwargs)
+        self.name = name
+        self.key = key
         self.computation = computation
         self.output = output
         self.parents = []
         self.dependents = []
+        self.corunning = []
 
     def get_id(self):
         return 'func_' + self.name
+
+    def get_fname(self):
+        return self.get_id() + '.o.py'
+
+
+class OutputElement(Element):
+    """
+        Holds information relating to an individual Scad compute element
+
+        parents: list[ComputeElement]
+            list of parent elements
+        corunning: list[MemoryElement]
+            list of corunning elements
+        output: dict
+            A dictionary specifying storage for output
+        """
+
+    def __init__(
+            self,
+            output,
+            **kwargs
+    ):
+        self.output = output
+        self.parents = []
+        self.corunning = []
+
+    def get_id(self):
+        return 'output'
+
+    def get_fname(self):
+        return self.get_id() + '.o.py'
 
 
 class MemoryElement(Element):
@@ -123,8 +166,8 @@ class MemoryElement(Element):
         'mem_' + name
     key: hashable
         name of key associated with the computation that outputs this element
-    corunning: list[ComputeElement]
-        list of corunning elements (ComputeElements that read/write to it)
+    corunning: list[ComputeElement/OutputElement]
+        list of corunning elements
     limits: dict
         dictionary of limits
     """
@@ -135,11 +178,16 @@ class MemoryElement(Element):
         limits=None,
         **kwargs
     ):
-        super().__init__(name, key, **kwargs)
+        self.name = name
+        self.key = key
+        self.corunning = []
         self.limits = {'mem': '512 MB'} if limits is None else limits
 
     def get_id(self):
         return 'mem_' + self.name
+
+    def get_fname(self):
+        return self.get_id() + '.o.yaml'
 
 
 def _construct(
@@ -187,7 +235,6 @@ def _construct(
 
 def process(
     dsk,
-    keys,
     cache=None,
     **kwargs
 ):
@@ -201,8 +248,6 @@ def process(
 
     dsk : dict
         A dask dictionary specifying a workflow
-    keys: object or list
-        Keys corresponding to desired data
     cache : dict-like, optional
         Temporary storage of results
     """
@@ -244,43 +289,46 @@ def process(
     for a in dsk2:
         _construct(a, dsk2, name, dependencies, dependents, compute, memory)
 
-    # construct output element
-    output = ComputeElement(len(name), None, None)
-    output.parents = [compute[k] for k in keys]
-    output.corunning = [memory[k] for k in keys]
-
-    return (list(compute.values()) + [output]), list(memory.values())
+    return compute, memory
 
 
-def generate(elements):
+def generate(elements, dir):
     def generate_comp(el):
-        if el.key is None:
-            template = get_template('output.j2')
-            print(template.render(
-                parents=el.parents,
-                corunning=el.corunning
-            ))
-        else:
-            template = get_template('function.j2')
-            print(template.render(
-                key=el.key,
-                name=el.name,
-                computation=el.computation,
-                parents=el.parents,
-                dependents=el.dependents,
-                corunning=el.corunning,
-                output=el.output.get_id() if el.output is not None else None
-            ))
+        template = get_template('function.j2')
+        return template.render(
+            key=el.key,
+            name=el.name,
+            computation=cloudpickle.dumps(el.computation),
+            parents=el.parents,
+            dependents=el.dependents,
+            corunning=el.corunning,
+            output=el.output.get_id() if el.output is not None else None
+        )
+
+    def generate_output(el):
+        template = get_template('output.j2')
+        return template.render(
+            output=el.output,
+            parents=el.parents,
+            corunning=el.corunning
+        )
 
     def generate_mem(el):
         template = get_template('memory.j2')
-        print(template.render(corunning=el.corunning, limits=el.limits))
+        return template.render(corunning=el.corunning, limits=el.limits)
 
     for e in elements:
+        generated = None
         if isinstance(e, ComputeElement):
-            generate_comp(e)
+            generated = generate_comp(e)
+        elif isinstance(e, OutputElement):
+            generated = generate_output(e)
         elif isinstance(e, MemoryElement):
-            generate_mem(e)
+            generated = generate_mem(e)
+
+        if generated is not None:
+            with open(os.path.join(dir, e.get_fname()), 'w') as f:
+                f.write(generated)
 
 
 # Jinja2 stuff
