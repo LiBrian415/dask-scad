@@ -6,6 +6,7 @@ See local.py and multithreading.py from dask
 import base64
 import cloudpickle
 import os.path
+import redis
 
 from dask import config
 from dask.core import flatten, get_dependencies, has_tasks, reverse_dict
@@ -30,9 +31,9 @@ def get(
     How to use:
     get(dsk, key(s), scad_output={...})
 
-    compute(scad_output={...})
+    compute(scheduler=get, scad_output={...})
 
-    with dask.config.set(scad_output={...})
+    with dask.config.set(scheduler=get, scad_output={...})
         ...
 
     Parameters
@@ -49,8 +50,8 @@ def get(
     scad_output : dict
         A dictionary specifying storage for output
         {
-            'type': lfs | ,
-            'meta': dict() [type specific metadata]
+            'type': redis,
+            'meta': dict() [type-specific metadata]
         }
     """
 
@@ -342,17 +343,17 @@ def generate(elements, dir):
 
 
 def load(meta, scad_output):
-    def read_lfs(output, cache):
+    def read_redis(output, cache):
+        r = redis.Redis(host=scad_output['meta']['host'], port=scad_output['meta']['port'])
         for k, v in output.items():
-            with open(v, 'rb') as f:
-                val = cloudpickle.loads(f.read())
+            val = cloudpickle.loads(r.get(v))
             cache[k] = val
 
     output = cloudpickle.loads(base64.b64decode(meta['output']))
     cache = dict()
 
-    if scad_output['type'] == 'lfs':
-        read_lfs(output, cache)
+    if scad_output['type'] == 'redis':
+        read_redis(output, cache)
     else:
         raise
 
