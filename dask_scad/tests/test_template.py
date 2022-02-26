@@ -4,6 +4,8 @@ import json
 import os.path
 import subprocess
 import tempfile
+
+import pandas as pd
 import redis
 
 from jinja2 import Environment, FileSystemLoader
@@ -82,6 +84,46 @@ def test_output_redis():
             assert v == cache[k]
 
 
+# If this works, then 95% sure Dask on Scad will work. If it doesn't, then I
+# have no idea.
+def test_full_df():
+    output = {'type': 'redis', 'meta': {'host': 'localhost', 'port': 6379}}
+
+    def test(input, task, expected):
+        template = get_template('full.j2')
+        with tempfile.NamedTemporaryFile(suffix='.py') as file:
+            with open(file.name, 'w') as f:
+                f.write(template.render(
+                    key=cloudpickle.dumps(('x', 1)),
+                    computation=cloudpickle.dumps(task),
+                    output=output))
+            res = json.loads(
+                subprocess.run(['python3', file.name, base64.b64encode(cloudpickle.dumps(input)).decode('ascii')],
+                               stdout=subprocess.PIPE).stdout.decode('utf-8'))
+            key, rkey = cloudpickle.loads(base64.b64decode(res['mem']))
+            r = redis.Redis(host=output['meta']['host'], port=output['meta']['port'])
+            v = cloudpickle.loads(r.get(rkey))
+
+            assert key == ('x', 1)
+            if isinstance(expected, pd.DataFrame):
+                assert expected.equals(v)
+            else:
+                assert expected == v
+
+    empty = pd.DataFrame()
+    input_cache = {'x': base64.b64encode(cloudpickle.dumps(empty)).decode('ascii')}
+    identity_task = (lambda x: x, 'x')
+
+    test(input_cache, identity_task, empty)
+
+    sample = pd.DataFrame([[10], [10], [1]], columns=['val'])
+    input_cache = {'x': base64.b64encode(cloudpickle.dumps(sample)).decode('ascii')}
+    sum_col_task = (lambda x, y: x[y].sum(), 'x', 'val')
+    expected = sample['val'].sum()
+
+    test(input_cache, sum_col_task, expected)
+
+
 # Jinja2 stuff
 TEMPLATE_PATHS = [os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")]
 
@@ -102,3 +144,4 @@ test_output()
 
 # Redis Tests (Run redis and uncomment to run)
 # test_output_redis()
+# test_full_df()

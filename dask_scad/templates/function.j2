@@ -27,7 +27,7 @@ from dask.core import _execute_task
 
 
 def main(params, action):
-    key = {{ '\'' + key + '\''}}
+    key = cloudpickle.loads({{ key }})
     output = {{ '\'' + output + '\''}}
     computation = {{ computation }}
 
