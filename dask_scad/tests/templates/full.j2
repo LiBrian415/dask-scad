@@ -1,0 +1,35 @@
+import base64
+import cloudpickle
+import json
+import redis
+import sys
+import uuid
+
+from dask.core import _execute_task
+
+
+def main(params):
+    key = cloudpickle.loads({{ key }})
+    scad_output = {{ output }}
+    computation = {{ computation }}
+    cache = dict()
+    for k, v in params.items():
+        cache[k] = cloudpickle.loads(base64.b64decode(v))
+
+    # Execute Task
+    res = _execute_task(cloudpickle.loads(computation), cache)
+
+    output = dict()
+    host = scad_output['meta']['host']
+    port = scad_output['meta']['port']
+    r = redis.Redis(host=host, port=port)
+    rkey = base64.b64encode(uuid.uuid4().bytes).decode('ascii')
+    r.set(rkey, cloudpickle.dumps(res))
+
+    tuple = (key, rkey)
+
+    print(json.dumps({'mem': base64.b64encode(cloudpickle.dumps(tuple)).decode('ascii'), 'error': False}))
+
+if __name__ == '__main__':
+    params = sys.argv[1]
+    main(cloudpickle.loads(base64.b64decode(params)))
