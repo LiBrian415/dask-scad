@@ -2,6 +2,7 @@ cloudpickle==2.0.0
 dask==2022.2.0
 Deprecated==1.2.13
 fsspec==2022.1.0
+haversine==2.5.1
 Jinja2==3.0.3
 locket==0.2.1
 MarkupSafe==2.1.0
