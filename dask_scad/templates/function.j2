@@ -31,33 +31,28 @@ def main(params, action):
     output = {{ '\'' + output + '\''}}
     computation = {{ computation }}
 
-    try:
-        # Input Processing
-        cache = dict()
-        for _, v in params.items():
-            if v['error']:
-                raise
-            (k, t, a, s) = cloudpickle.loads(base64.b64decode(v[0]['mem']))
+    # Input Processing
+    cache = dict()
+    for _, v in params.items():
+        (k, t, a, s) = cloudpickle.loads(base64.b64decode(v[0]['mem']))
 
-            trans = action.get_transport(t, 'rdma')
-            trans.reg(s)
-            trans.read(s, a, 0)
-            cache[k] = cloudpickle.loads(trans.buf[:s])
+        trans = action.get_transport(t, 'rdma')
+        trans.reg(s)
+        trans.read(s, a, 0)
+        cache[k] = cloudpickle.loads(trans.buf[:s])
 
-        # Execute Task
-        df = _execute_task(cloudpickle.loads(computation), cache)
+    # Execute Task
+    df = _execute_task(cloudpickle.loads(computation), cache)
 
-        # Output Processing
-        serialized = cloudpickle.dumps(df)
-        address = 0
-        size = len(serialized)
+    # Output Processing
+    serialized = cloudpickle.dumps(df)
+    address = 0
+    size = len(serialized)
 
-        trans = action.get_transport(output, 'rdma')
-        trans.reg(size)
-        trans.buf[:] = serialized
-        trans.write(size, address, 0)
+    trans = action.get_transport(output, 'rdma')
+    trans.reg(size)
+    trans.buf[:] = serialized
+    trans.write(size, address, 0)
 
-        return {'mem': base64.b64encode(cloudpickle.dumps((key, output, address, size))).decode('ascii'), 'error': False}
-    except Exception:
-        return {'error': True}
+    return {'mem': base64.b64encode(cloudpickle.dumps((key, output, address, size))).decode('ascii')}
 
