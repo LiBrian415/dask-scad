@@ -26,12 +26,34 @@ def main(params, action):
     # Input Processing
     cache = dict()
     for _, v in params.items():
-        (k, t, a, s) = cloudpickle.loads(base64.b64decode(v[0]['mem']))
+        meta = cloudpickle.loads(base64.b64decode(v[0]['meta']))
+        if meta['type'] == 'df':
+            (k, t, a, s) = meta['df']
 
-        trans = action.get_transport(t, 'rdma')
-        trans.reg(s)
-        trans.read(s, a, 0)
-        cache[k] = cloudpickle.loads(trans.buf[:s])
+            trans = action.get_transport(t, 'rdma')
+            trans.reg(1024 * 1024 * 64)
+
+            trans.read(s, a, 0)
+            df = cloudpickle.loads(trans.buf[:s])
+
+            # OutputElement will return the entire df so just loaded the blocks
+            # instead of using RemoteBlocks
+            blks = meta['blocks']
+            data_blks = []
+            for b in blks:
+                (a, s) = b['remote_meta']['meta']
+                trans.read(s, a, 0)
+                data_blks.append(cloudpickle.loads(trans[:s]))
+
+            df._data.blocks = tuple(data_blks)
+            cache[k] = df
+        else:
+            (k, t, a, s) = meta['mem']
+
+            trans = action.get_transport(t, 'rdma')
+            trans.reg(s)
+            trans.read(s, a, 0)
+            cache[k] = cloudpickle.loads(trans.buf[:s])
 
     # Output Processing
     # This is a stupid way to do this and doesn't really allow for easy support

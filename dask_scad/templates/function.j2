@@ -22,8 +22,10 @@
 
 import base64
 import cloudpickle
+import pandas as pd
 
 from dask.core import _execute_task
+from pandas.core.internals.blocks import RemoteBlock
 
 
 def main(params, action):
@@ -34,25 +36,92 @@ def main(params, action):
     # Input Processing
     cache = dict()
     for _, v in params.items():
-        (k, t, a, s) = cloudpickle.loads(base64.b64decode(v[0]['mem']))
+        meta = cloudpickle.loads(base64.b64decode(v[0]['meta']))
+        if meta['type'] == 'df':
+            (k, t, a, s) = meta['df']
 
-        trans = action.get_transport(t, 'rdma')
-        trans.reg(s)
-        trans.read(s, a, 0)
-        cache[k] = cloudpickle.loads(trans.buf[:s])
+            trans = action.get_transport(t, 'rdma')
+            trans.reg(1024 * 1024 * 64)
+
+            trans.read(s, a, 0)
+            df = cloudpickle.loads(trans.buf[:s])
+
+            blks = meta['blocks']
+            remote_blks = []
+            for b in blks:
+                remote_blk = RemoteBlock(bp=b['bp'],
+                                         shape=b['shape'],
+                                         ndim=b['ndim'],
+                                         remote_meta=b['remote_meta'],
+                                         transport=trans)
+                remote_blks.append(remote_blk)
+
+            df._data.blocks = tuple(remote_blks)
+            cache[k] = df
+        else:
+            (k, t, a, s) = meta['mem']
+
+            trans = action.get_transport(t, 'rdma')
+            trans.reg(s)
+            trans.read(s, a, 0)
+            cache[k] = cloudpickle.loads(trans.buf[:s])
 
     # Execute Task
-    df = _execute_task(cloudpickle.loads(computation), cache)
+    res = _execute_task(cloudpickle.loads(computation), cache)
 
     # Output Processing
-    serialized = cloudpickle.dumps(df)
-    address = 0
-    size = len(serialized)
+    if isinstance(res, pd.DataFrame):
+        df = res
+        trans = action.get_transport(output, 'rdma')
+        trans.reg(1024 * 1024 * 64)
 
-    trans = action.get_transport(output, 'rdma')
-    trans.reg(size)
-    trans.buf[:] = serialized
-    trans.write(size, address, 0)
+        remote_blocks_meta = []
+        address = 0
 
-    return {'mem': base64.b64encode(cloudpickle.dumps((key, output, address, size))).decode('ascii')}
+        for blk in df._data.blocks:
+            serialized = cloudpickle.dumps(blk)
+            size = len(serialized)
+            remote_meta = {
+                'bp': blk._mgr_locs.orig_val,
+                'shape': blk.shape,
+                'ndim': blk.ndim,
+                'remote_meta': {'type': 'scad', 'meta': (address, size)}
+            }
+            remote_blocks_meta.append(remote_meta)
+
+            trans.buf[address:address+size] = serialized
+            address += size
+
+        df._data.blocks = ()
+        serialized_df = cloudpickle.dumps(df)
+        size = len(serialized_df)
+        df_loc = (key, output, address, size)
+
+        trans.buf[address:address+size] = serialized
+        address += size
+
+        # Write entire transport to memory element
+        trans.write(address, 0, 0)
+
+        meta = {
+            'type': 'df',
+            'df': df_loc,
+            'blocks': remote_blocks_meta
+        }
+    else:
+        serialized = cloudpickle.dumps(df)
+        address = 0
+        size = len(serialized)
+
+        trans = action.get_transport(output, 'rdma')
+        trans.reg(size)
+        trans.buf[:] = serialized
+        trans.write(size, address, 0)
+
+        meta = {
+            'type': 'misc',
+            'mem': (key, output, address, size)
+        }
+
+    return {'meta': base64.b64encode(cloudpickle.dumps(meta)).decode('ascii')}
 
