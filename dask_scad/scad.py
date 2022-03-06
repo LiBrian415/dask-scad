@@ -7,6 +7,7 @@ import base64
 import cloudpickle
 import os.path
 import redis
+import sys
 
 from dask import config
 from dask.core import flatten, get_dependencies, has_tasks, reverse_dict
@@ -17,7 +18,7 @@ from dask.utils import ensure_dict
 from jinja2 import Environment, FileSystemLoader
 
 from tempfile import TemporaryDirectory
-
+from utils import wskgen, wskish, run_disagg
 
 def get(
     dsk,
@@ -25,6 +26,9 @@ def get(
     cache=None,
     optimize_graph=True,
     scad_output=None,
+    obj_dir='temp',
+    comp_engine='rundisagg',
+    m_server_path=None,
     **kwargs
 ):
     """
@@ -53,6 +57,10 @@ def get(
             'type': redis,
             'meta': dict() [type-specific metadata]
         }
+    obj_dir : string
+        The relative or absolute path to the directory storing generated Scad object files
+    m_server_path: string
+        The absolute path to the memory_server binary provided by Scad
     """
 
     scad_output = scad_output or config.get('scad_output')
@@ -85,9 +93,32 @@ def get(
 
     # Note: use os.mkdir() for local testing
     # use temp directory to handle cleanup
-    with TemporaryDirectory() as td:
-        generate(list(compute.values()) + [output] + list(memory.values()), td)
-        result_meta = dict() #TODO: replace with Scad program execution
+    os.makedirs(obj_dir, exist_ok = True)
+    generate(list(compute.values()) + [output] + list(memory.values()), obj_dir)
+
+    if comp_engine == 'openwhisk':
+        wskgen.generate(obj_dir, 'action.json')
+
+        json_content = wskish.read_example('action.json')
+        wsk_config = wskish.load_wskprops()
+    
+        host = wsk_config['APIHOST']
+        if not host.startswith('http'):
+            host = 'https://' + host
+
+        auth = wsk_config['AUTH']
+        wskprops = wskish.WskProps(host, auth)
+        app_name = "app-test"
+
+        resp = wskish.do_action_update(wskprops.host, "PUT", json_content, app_name, wskprops.auth)
+    
+    elif comp_engine == 'rundisagg':
+        # run_disagg.run(input = obj_dir, m_server = m_server_path)
+        print("TODO")
+    else:
+        sys.exit("wrong computation engine")
+
+    result_meta = dict() #TODO: replace with Scad program execution
 
     cache = load(result_meta, scad_output)
     return nested_get(result, cache)
@@ -338,7 +369,7 @@ def generate(elements, dir):
             generated = generate_mem(e)
 
         if generated is not None:
-            with open(os.path.join(dir, e.get_fname()), 'w') as f:
+            with open(os.path.join(dir, e.get_fname()), 'w+') as f:
                 f.write(generated)
 
 
