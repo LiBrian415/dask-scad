@@ -307,7 +307,7 @@ def generate(elements, dir):
     def generate_comp(el):
         template = get_template('function.j2')
         return template.render(
-            key=cloudpickle.dumps(el.key),
+            key=el.key,
             name=el.name,
             computation=cloudpickle.dumps(el.computation),
             parents=el.parents,
