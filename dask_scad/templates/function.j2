@@ -20,7 +20,6 @@
 {%- endfor %}
 {%- endif %}
 
-import base64
 import cloudpickle
 
 from dask.core import _execute_task
@@ -37,7 +36,7 @@ def main(params, action):
         for _, v in params:
             if v['error']:
                 raise
-            (k, t, a, s) = cloudpickle.loads(base64.b64decode(v['mem']))
+            (k, t, a, s) = v['mem']
 
             trans = action.get_transport(t, 'rdma')
             trans.reg(s)
@@ -57,7 +56,7 @@ def main(params, action):
         trans.buf[:] = serialized
         trans.write(size, address, 0)
 
-        return {'mem': base64.b64encode(cloudpickle.dumps((key, output, address, size))).decode('ascii'), 'error': False}
+        return {'mem' : (key, output, address, size), 'error' : False}
     except Exception:
-        return {'error': True}
+        return {'error' : True}
 

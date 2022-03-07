@@ -12,7 +12,7 @@ def main(params):
     # Execute Task
     res = _execute_task(cloudpickle.loads(computation), cache)
 
-    print(json.dumps({'res': res, 'error': False}))
+    print(json.dumps({'res' : res, 'error' : False}))
 
 if __name__ == '__main__':
     params = sys.argv[1]

@@ -14,7 +14,6 @@
 {%- endfor %}
 {%- endif %}
 
-import base64
 import cloudpickle
 
 
@@ -26,7 +25,7 @@ def main(params, action):
         for _, v in params:
             if v['error']:
                 raise
-            (k, t, a, s) = cloudpickle.loads(base64.b64decode(v['mem']))
+            (k, t, a, s) = v['mem']
 
             trans = action.get_transport(t, 'rdma')
             trans.reg(s)
@@ -34,12 +33,12 @@ def main(params, action):
             cache[k] = cloudpickle.loads(trans.buf[:s])
 
         # Output Processing
-        output = dict()
+        output = {'output': dict(), 'error': False}
         for k, v in cache.items():
             serialized = cloudpickle.dumps(v)
             path = 'dummy' #TODO: add actual storage
             output['output'][k] = path
 
-        return {'output': base64.b64encode(cloudpickle.dumps(output)).decode('ascii'), 'error': False}
+        return output
     except Exception:
-        return {'error': True}
+        return {'error' : True}
