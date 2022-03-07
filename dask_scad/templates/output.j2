@@ -25,10 +25,10 @@ def main(params, action):
     try:
         # Input Processing
         cache = dict()
-        for _, v in params.items():
+        for _, v in params:
             if v['error']:
                 raise
-            (k, t, a, s) = cloudpickle.loads(base64.b64decode(v[0]['mem']))
+            (k, t, a, s) = cloudpickle.loads(base64.b64decode(v['mem']))
 
             trans = action.get_transport(t, 'rdma')
             trans.reg(s)
