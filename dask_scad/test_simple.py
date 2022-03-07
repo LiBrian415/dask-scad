@@ -20,4 +20,4 @@ if __name__ == '__main__':
 
     print(z)
     print(z.compute(scad_output = {'type': 'redis', 'meta': {'host':'127.0.0.1', 'port':6379}},
-                    comp_config = {'kind': 'rundisagg', 'mpath': '~/Scad/runtime/lib/memory_server'}))
+                    comp_config = {'kind': 'rundisagg', 'mpath': '/home/cse291/Scad/runtime/lib/memory_server'}))

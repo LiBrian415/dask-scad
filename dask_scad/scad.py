@@ -117,13 +117,11 @@ def get(
         resp = wskish.do_action_update(wskprops.host, "PUT", json_content, app_name, wskprops.auth)
     
     elif comp_config['kind'] == 'rundisagg':
-        run_disagg.run(obj_dir, comp_config['mpath'])
+        result_meta = run_disagg.run(obj_dir, comp_config['mpath'])
     else:
         sys.exit("wrong computation engine")
 
-    result_meta = dict() #TODO: replace with Scad program execution
-
-    cache = load(result_meta, scad_output)
+    cache = load(result_meta, scad_output) # {'output': ans}
     return nested_get(result, cache)
 
 
@@ -390,6 +388,8 @@ def load(meta, scad_output):
         read_redis(output, cache)
     else:
         raise
+
+    return cache
 
 
 # Jinja2 stuff

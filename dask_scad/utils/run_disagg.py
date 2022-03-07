@@ -297,3 +297,5 @@ def run(input, memory_server_path):
 
     for proc in mem_procs:
         proc.terminate()
+    
+    return simple_task_graph['output'][3].rv 
