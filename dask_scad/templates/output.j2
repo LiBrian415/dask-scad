@@ -22,30 +22,33 @@ import uuid
 
 def main(params, action):
     scad_output = {{ output }}
+    try:
+        # Input Processing
+        cache = dict()
+        for _, v in params.items():
+            if v['error']:
+                raise
+            (k, t, a, s) = cloudpickle.loads(base64.b64decode(v[0]['mem']))
 
-    # Input Processing
-    cache = dict()
-    for _, v in params.items():
-        (k, t, a, s) = cloudpickle.loads(base64.b64decode(v[0]['mem']))
+            trans = action.get_transport(t, 'rdma')
+            trans.reg(s)
+            trans.read(s, a, 0)
+            cache[k] = cloudpickle.loads(trans.buf[:s])
 
-        trans = action.get_transport(t, 'rdma')
-        trans.reg(s)
-        trans.read(s, a, 0)
-        cache[k] = cloudpickle.loads(trans.buf[:s])
+        # Output Processing
+        # This is a stupid way to do this and doesn't really allow for easy support
+        # for other mediums, but oh well...
+        if scad_output['type'] != 'redis':
+            raise
 
-    # Output Processing
-    # This is a stupid way to do this and doesn't really allow for easy support
-    # for other mediums, but oh well...
-    if scad_output['type'] != 'redis':
-        raise
+        output = dict()
+        r = redis.Redis(host=scad_output['meta']['host'], port=scad_output['meta']['port'])
+        for k, v in cache.items():
+            serialized = cloudpickle.dumps(v)
+            key = base64.b64encode(uuid.uuid4().bytes).decode('ascii')
+            r.set(key, serialized)
+            output[k] = key
 
-    output = dict()
-    r = redis.Redis(host=scad_output['meta']['host'], port=scad_output['meta']['port'])
-    for k, v in cache.items():
-        serialized = cloudpickle.dumps(v)
-        key = base64.b64encode(uuid.uuid4().bytes).decode('ascii')
-        r.set(key, serialized)
-        output[k] = key
-
-    return {'output': base64.b64encode(cloudpickle.dumps(output)).decode('ascii')}
-
+        return {'output': base64.b64encode(cloudpickle.dumps(output)).decode('ascii'), 'error': False}
+    except Exception:
+        return {'error': True}
