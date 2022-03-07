@@ -3,8 +3,6 @@ import json
 import sys
 import tempfile
 import base64
-import uuid
-import redis
 
 from dask.core import _execute_task
 
@@ -31,13 +29,6 @@ def store(data, output):
         with open(tf.name, 'wb') as f:
             f.write(data)
         return tf.name
-    elif output['type'] == 'redis':
-        host = output['meta']['host']
-        port = output['meta']['port']
-        r = redis.Redis(host=host, port=port)
-        key = base64.b64encode(uuid.uuid4().bytes).decode('ascii')
-        r.set(key, data)
-        return key
     else:
         raise
 

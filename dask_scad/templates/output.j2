@@ -16,8 +16,6 @@
 
 import base64
 import cloudpickle
-import redis
-import uuid
 
 
 def main(params, action):
@@ -36,18 +34,11 @@ def main(params, action):
             cache[k] = cloudpickle.loads(trans.buf[:s])
 
         # Output Processing
-        # This is a stupid way to do this and doesn't really allow for easy support
-        # for other mediums, but oh well...
-        if scad_output['type'] != 'redis':
-            raise
-
         output = dict()
-        r = redis.Redis(host=scad_output['meta']['host'], port=scad_output['meta']['port'])
         for k, v in cache.items():
             serialized = cloudpickle.dumps(v)
-            key = base64.b64encode(uuid.uuid4().bytes).decode('ascii')
-            r.set(key, serialized)
-            output[k] = key
+            path = 'dummy' #TODO: add actual storage
+            output['output'][k] = path
 
         return {'output': base64.b64encode(cloudpickle.dumps(output)).decode('ascii'), 'error': False}
     except Exception:
