@@ -28,6 +28,7 @@ from dask.core import _execute_task
 def main(params, action):
     key = {{ '\'' + key + '\''}}
     output = {{ '\'' + output + '\''}}
+    # ?: Do we need to serialize and deserialize the tasks?
     computation = {{ computation }}
 
     try:
@@ -44,7 +45,7 @@ def main(params, action):
             cache[k] = cloudpickle.loads(trans.buf[:s])
 
         # Execute Task
-        df = _execute_task(cloudpickle.loads(computation), cache)
+        df = _execute_task(computation, cache)
 
         # Output Processing
         serialized = cloudpickle.dumps(df)
