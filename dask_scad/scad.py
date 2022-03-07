@@ -27,8 +27,7 @@ def get(
     optimize_graph=True,
     scad_output=None,
     obj_dir='temp',
-    comp_engine='rundisagg',
-    m_server_path=None,
+    comp_config = {},
     **kwargs
 ):
     """
@@ -59,8 +58,13 @@ def get(
         }
     obj_dir : string
         The relative or absolute path to the directory storing generated Scad object files
-    m_server_path: string
-        The absolute path to the memory_server binary provided by Scad
+    comp_config: dict
+        A dictionary specifying the computation engine: openwhisk or run_disagg from Scad
+        {
+            'kind': openwhisk | run_disagg, [required]
+            'mpath': str() [the absolute path to the memory_server binary in Scad, optional,
+                            required if comp_config['kind'] == 'run_disagg'],
+        }
     """
 
     scad_output = scad_output or config.get('scad_output')
@@ -96,7 +100,7 @@ def get(
     os.makedirs(obj_dir, exist_ok = True)
     generate(list(compute.values()) + [output] + list(memory.values()), obj_dir)
 
-    if comp_engine == 'openwhisk':
+    if comp_config['kind'] == 'openwhisk':
         wskgen.generate(obj_dir, 'action.json')
 
         json_content = wskish.read_example('action.json')
@@ -112,9 +116,8 @@ def get(
 
         resp = wskish.do_action_update(wskprops.host, "PUT", json_content, app_name, wskprops.auth)
     
-    elif comp_engine == 'rundisagg':
-        # run_disagg.run(input = obj_dir, m_server = m_server_path)
-        print("TODO")
+    elif comp_config['kind'] == 'rundisagg':
+        run_disagg.run(obj_dir, comp_config['mpath'])
     else:
         sys.exit("wrong computation engine")
 
