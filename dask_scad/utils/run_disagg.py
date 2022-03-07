@@ -180,21 +180,9 @@ def _thread_get_id():
     return current_thread().ident
 
 
-if __name__ == '__main__':
-
-    parser = argparse.ArgumentParser(description='Generate disaggregated json from folder')
-    parser.add_argument('-d', '--output_dir', type=str, default='/result',
-                        help='output directory')
-    parser.add_argument('-p', '--print_output', action='store_true',
-                        help='print output')
-    parser.add_argument('input', type=str,
-                        help='input directory containing the object files')
-    parser.add_argument('-mpath', '--memory_server_path', type=str, required = True, default='~/Scad/runtime/lib/memory_server',
-                        help='The absolute to the memory_server binary')
-    args = parser.parse_args()
-
-    objfiles = [f for f in listdir(args.input) if isfile(join(args.input, f)) and join(args.input, f).endswith('.o.py')]
-    memfiles = [f for f in listdir(args.input) if isfile(join(args.input, f)) and join(args.input, f).endswith('.o.yaml')]
+def run(input, memory_server_path):
+    objfiles = [join(input, f) for f in listdir(input) if isfile(join(input, f)) and join(input, f).endswith('.o.py')]
+    memfiles = [f for f in listdir(input) if isfile(join(input, f)) and join(input, f).endswith('.o.yaml')]
     
     port = 30442
     mem_to_port = dict()
@@ -202,7 +190,7 @@ if __name__ == '__main__':
     # run each memory element by 'memory_server' in separated processes
     for mem in memfiles:
         mem_to_port[mem.rsplit(".o", 1)[0]] = port
-        mem_procs.append(subprocess.Popen([args.memory_server_path, str(port)]))
+        mem_procs.append(subprocess.Popen([memory_server_path, str(port)]))
         port = port + 1
 
     print("wait 5 seconds to ensure memory elements are up")
@@ -244,7 +232,7 @@ if __name__ == '__main__':
         action_profile[meta['name']] = {'file': file, 'action': action, 'params': params, \
                                     'parents': parents, 'dependents': dependents}
      
-    # TODO construct task graphs by action_profile
+    # construct task graphs by action_profile
     simple_task_graph = dict()
 
     def dummy_func(file, action, params, *args):
@@ -262,7 +250,6 @@ if __name__ == '__main__':
 
 
     # adapt the code from dask/local.py/start_state_from_dask
-    # state = dask_local.start_state_from_dask(simple_task_graph)
     result = [['output']]
 
     # TODO might have bug from here
