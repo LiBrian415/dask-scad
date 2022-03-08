@@ -1,0 +1,4 @@
+[submodule "pandas"]
+	path = pandas
+	url = https://github.com/LiBrian415/pandas.git
+	branch = remote
