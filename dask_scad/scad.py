@@ -8,6 +8,7 @@ import cloudpickle
 import os.path
 import redis
 import sys
+import shutil
 
 from dask import config
 from dask.core import flatten, get_dependencies, has_tasks, reverse_dict
@@ -121,6 +122,8 @@ def get(
     else:
         sys.exit("wrong computation engine")
 
+    # Comment line below if you need to debug simple elements
+    shutil.rmtree(obj_dir)
     cache = load(result_meta, scad_output) # {'output': ans}
     return nested_get(result, cache)
 

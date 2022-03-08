@@ -109,7 +109,7 @@ class MetaFileParamLoader(FileParamLoader):
         return os.path.join(self.path, filename)
 
     def ioInFile(self, obj):
-        filename = "rundisagg.{}*.json".format(obj)
+        filename = "rundisagg.{}.json".format(obj)
         files = glob(os.path.join(self.path, filename))
         return files
 
