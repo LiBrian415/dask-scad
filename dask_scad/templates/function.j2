@@ -70,10 +70,8 @@ def main(params, action):
     res = _execute_task(cloudpickle.loads(computation), cache)
 
     # Output Processing
-    print(type(res))
     if isinstance(res, pd.DataFrame):
         df = res
-        print(df)
         trans = action.get_transport(output, 'rdma')
         trans.reg(1024 * 1024 * 64)
 
