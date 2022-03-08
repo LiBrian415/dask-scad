@@ -70,8 +70,10 @@ def main(params, action):
     res = _execute_task(cloudpickle.loads(computation), cache)
 
     # Output Processing
+    print(type(res))
     if isinstance(res, pd.DataFrame):
         df = res
+        print(df)
         trans = action.get_transport(output, 'rdma')
         trans.reg(1024 * 1024 * 64)
 
@@ -97,7 +99,7 @@ def main(params, action):
         size = len(serialized_df)
         df_loc = (key, output, address, size)
 
-        trans.buf[address:address+size] = serialized
+        trans.buf[address:address+size] = serialized_df
         address += size
 
         # Write entire transport to memory element
@@ -109,7 +111,7 @@ def main(params, action):
             'blocks': remote_blocks_meta
         }
     else:
-        serialized = cloudpickle.dumps(df)
+        serialized = cloudpickle.dumps(res)
         address = 0
         size = len(serialized)
 

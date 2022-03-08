@@ -43,7 +43,7 @@ def main(params, action):
             for b in blks:
                 (a, s) = b['remote_meta']['meta']
                 trans.read(s, a, 0)
-                data_blks.append(cloudpickle.loads(trans[:s]))
+                data_blks.append(cloudpickle.loads(trans.buf[:s]))
 
             df._data.blocks = tuple(data_blks)
             cache[k] = df
