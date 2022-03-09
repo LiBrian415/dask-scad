@@ -25,6 +25,7 @@ import cloudpickle
 
 from dask.core import _execute_task
 
+limit = 1000 * 1000
 
 def main(params, action):
     key = cloudpickle.loads({{ key }})
@@ -38,7 +39,11 @@ def main(params, action):
 
         trans = action.get_transport(t, 'rdma')
         trans.reg(s)
-        trans.read(s, a, 0)
+
+        for i in range(0, s, limit):
+            ts = min(limit, s-i)
+            trans.read(ts, a+i, i)
+
         cache[k] = cloudpickle.loads(trans.buf[:s])
 
     # Execute Task
@@ -52,7 +57,10 @@ def main(params, action):
     trans = action.get_transport(output, 'rdma')
     trans.reg(size)
     trans.buf[:] = serialized
-    trans.write(size, address, 0)
+
+    for i in range(0, size, limit):
+        ts = min(limit, size-i)
+        trans.write(ts, address+i, i)
 
     return {'mem': base64.b64encode(cloudpickle.dumps((key, output, address, size))).decode('ascii')}
 

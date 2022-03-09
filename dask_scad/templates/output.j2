@@ -19,6 +19,7 @@ import cloudpickle
 import redis
 import uuid
 
+limit = 1000 * 1000
 
 def main(params, action):
     scad_output = {{ output }}
@@ -30,7 +31,11 @@ def main(params, action):
 
         trans = action.get_transport(t, 'rdma')
         trans.reg(s)
-        trans.read(s, a, 0)
+
+        for i in range(0, s, limit):
+            ts = min(limit, s-i)
+            trans.read(ts, a+i, i)
+
         cache[k] = cloudpickle.loads(trans.buf[:s])
 
     # Output Processing
