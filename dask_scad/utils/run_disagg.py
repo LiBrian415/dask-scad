@@ -78,12 +78,17 @@ class FileParamLoader(ParamLoader):
         self.rv = None
 
     def get(self):
+        for obj in self.infiles:
+            filename = "rundisagg.{}.json".format(obj)
+            self.infiles[obj] = glob(os.path.join(self.path, filename))
+
         params = {} 
         for obj in self.infiles:
             params[obj] = []
             for filename in self.infiles[obj]:
                 with open(filename) as f:  
                     params[obj].append(json.load(f))
+
         return params
 
     def put(self, rv):
