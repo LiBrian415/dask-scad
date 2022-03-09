@@ -28,7 +28,7 @@ def get(
     optimize_graph=True,
     scad_output=None,
     obj_dir='temp',
-    comp_config = {},
+    comp_config=None,
     **kwargs
 ):
     """
@@ -69,6 +69,7 @@ def get(
     """
 
     scad_output = scad_output or config.get('scad_output')
+    comp_config = comp_config or config.get('comp_config')
 
     # Optimize Dask
     dsk = ensure_dict(dsk)
