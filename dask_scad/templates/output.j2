@@ -19,6 +19,7 @@ import cloudpickle
 import redis
 import uuid
 
+limit = 1000 * 1000
 
 def main(params, action):
     scad_output = {{ output }}
@@ -33,7 +34,10 @@ def main(params, action):
             trans = action.get_transport(t, 'rdma')
             trans.reg(1024 * 1024 * 64)
 
-            trans.read(s, a, 0)
+            for i in range(0, s, limit):
+                ts = min(limit, s-i)
+                trans.read(ts, a+i, i)
+
             df = cloudpickle.loads(trans.buf[:s])
 
             # OutputElement will return the entire df so just loaded the blocks
@@ -42,7 +46,11 @@ def main(params, action):
             data_blks = []
             for b in blks:
                 (a, s) = b['remote_meta']['meta']
-                trans.read(s, a, 0)
+
+                for i in range(0, s, limit):
+                    ts = min(limit, s-i)
+                    trans.read(ts, a+i, i)
+
                 data_blks.append(cloudpickle.loads(trans.buf[:s]))
 
             df._data.blocks = tuple(data_blks)
@@ -52,7 +60,11 @@ def main(params, action):
 
             trans = action.get_transport(t, 'rdma')
             trans.reg(s)
-            trans.read(s, a, 0)
+
+            for i in range(0, s, limit):
+                ts = min(limit, s-i)
+                trans.read(ts, a+i, i)
+
             cache[k] = cloudpickle.loads(trans.buf[:s])
 
     # Output Processing

@@ -27,6 +27,7 @@ import pandas as pd
 from dask.core import _execute_task
 from pandas.core.internals.blocks import RemoteBlock
 
+limit = 1000 * 1000
 
 def main(params, action):
     key = cloudpickle.loads({{ key }})
@@ -43,7 +44,10 @@ def main(params, action):
             trans = action.get_transport(t, 'rdma')
             trans.reg(1024 * 1024 * 64)
 
-            trans.read(s, a, 0)
+            for i in range(0, s, limit):
+                ts = min(limit, s-i)
+                trans.read(ts, a+i, i)
+
             df = cloudpickle.loads(trans.buf[:s])
 
             blks = meta['blocks']
@@ -63,7 +67,11 @@ def main(params, action):
 
             trans = action.get_transport(t, 'rdma')
             trans.reg(s)
-            trans.read(s, a, 0)
+
+            for i in range(0, s, limit):
+                ts = min(limit, s-i)
+                trans.read(ts, a+i, i)
+
             cache[k] = cloudpickle.loads(trans.buf[:s])
 
     # Execute Task
@@ -101,7 +109,9 @@ def main(params, action):
         address += size
 
         # Write entire transport to memory element
-        trans.write(address, 0, 0)
+        for i in range(0, address, limit):
+            ts = min(limit, address-i)
+            trans.write(ts, i, i)
 
         meta = {
             'type': 'df',
@@ -116,7 +126,10 @@ def main(params, action):
         trans = action.get_transport(output, 'rdma')
         trans.reg(size)
         trans.buf[:] = serialized
-        trans.write(size, address, 0)
+
+        for i in range(0, size, limit):
+            ts = min(limit, size-i)
+            trans.write(ts, address+i, i)
 
         meta = {
             'type': 'misc',
