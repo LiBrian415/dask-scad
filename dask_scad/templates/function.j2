@@ -87,6 +87,10 @@ def main(params, action):
         address = 0
 
         for blk in df._data.blocks:
+            if isinstance(blk, RemoteBlock):
+                blk._load()
+                blk = blk.delegate
+
             serialized = cloudpickle.dumps(blk)
             size = len(serialized)
             remote_meta = {
